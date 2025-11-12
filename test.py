@@ -1,0 +1,58 @@
+import os
+from openai import AzureOpenAI
+from fastapi import FastAPI, HTTPException
+from pydantic import BaseModel
+
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except Exception:
+    pass
+
+AZURE_API_KEY = os.getenv("AZURE_API_KEY")
+
+endpoint = "https://gpt-coach-v1-resource.cognitiveservices.azure.com/"
+model_name = "gpt-35-turbo"
+deployment = "gpt-35-turbo"
+
+api_version = "2024-12-01-preview"
+
+client = AzureOpenAI(
+    api_version=api_version,
+    azure_endpoint=endpoint,
+    api_key=AZURE_API_KEY,
+)
+
+# --- Initialisation de l'application FastAPI ---
+app = FastAPI(title="LLM Coach API")
+
+# --- Schéma de la requête ---
+class ChatRequest(BaseModel):
+    user_prompt: str
+
+@app.post("/chat")
+def chat(request: ChatRequest):
+    try:   
+        response = client.chat.completions.create(
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Your have to introduce yourself as a health coach if you have not already. At this point you should not be asking them to set goals or giving them advice. Your current task is to welcome the client to the program and align expectations between them and you as the health coach. First, inform the client that they will design their own physical activity plan, which should reflect their preferences, interests, and access to resources. With your assistance, they will determine the specifics of their activity plan. Second, confirm their understanding and ask if they have any questions or concerns before getting started.",
+                    
+                },
+                {
+                    "role": "user",
+                    "content": request.user_prompt,
+                },
+            ],
+            max_tokens=512, #modifié
+            temperature=1.0,
+            top_p=1.0,
+            model=deployment
+        )
+
+        ai_message = response.choices[0].message.content
+        return {"response": ai_message}
+    
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
