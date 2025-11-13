@@ -30,6 +30,10 @@ app = FastAPI(title="LLM Coach API")
 class ChatRequest(BaseModel):
     user_prompt: str
 
+@app.get("/")
+def root():
+    return {"message": "API is running on Render"}
+
 @app.post("/chat")
 def chat(request: ChatRequest):
     try:   
