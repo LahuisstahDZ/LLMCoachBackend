@@ -20,7 +20,8 @@ class Analyzer:
 			azure_endpoint=endpoint,
 			api_key=subscription_key,
 		)
-        self.system_prompt = "You are a sentence analyst. You analyze the user prompt and return a boolean stating if the condition is met. If the user prompt contains 'banana' you have to return True. If the user prompt does not contain 'banana' you have to return False."
+        self.system_prompt ="You are a conversation analyst. You analyze the user prompt and should extract a JSON of the physical activities the client should achieve this week. Each physical activity in the JSON should be precise, in length and in action.The user prompt is composed of a conversation and of the current JSON of the tasks of the week.The conversation can either : have no impact on the JSON ; mean a modification of a task already in the JSON ; mean the deletion of a task already in the JSON ; mean the addition of a new task in the JSON. Your output should contain two elements : a string describing the action performed on the JSON ('none', 'modification', 'addition', 'deletion'), and the updated JSON of the tasks on the week in the format : {'day': ['task 1', 'task 2'] }. Here is an exemple of output : 'addition'; {'monday':[], 'tuesday':['Walk 10 minutes at lunch'], 'wednesday':[], 'thursday':['Run 1km with my dog', 'Have a stretch break', 'Dance in the street during 2 songs'], 'friday':[], 'saturday':[], 'sunday':[]} "
+        #self.system_prompt = "You are a sentence analyst. You analyze the user prompt and return a boolean stating if the condition is met. If the user prompt contains 'banana' you have to return True. If the user prompt does not contain 'banana' you have to return False."
 
 
     def handle_request(self, user_input) :
