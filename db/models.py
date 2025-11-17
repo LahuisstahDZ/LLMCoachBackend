@@ -3,10 +3,6 @@ from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import relationship
 from db.database import Base
 
-#DATABASE_URL = "postgresql://postgres:madbestlameilleure@localhost:5432/llmcoach_db"
-#DATABASE_URL = "postgresql://postgres:WjHb9Udsizul5d0GD5xoAXNgxDksLBvZ@localhost:5432/llmcoach_db"
-#DATABASE_URL = "postgresql://llmcoach_db_user:WjHb9Udsizul5d0GD5xoAXNgxDksLBvZ@localhost:5432/llmcoach_db"
-
 class User(Base):
     __tablename__ = "user"
 
