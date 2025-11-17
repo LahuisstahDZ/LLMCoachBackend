@@ -20,43 +20,44 @@ class Orchestrator:
         self.chatbot = Chatbot()
 
     def interpret_analysis(self, analysis: str, user_id=1):
-        action, toolcall = analysis.split(sep=";", maxsplit=2)
+        # parse JSON string returned by the analyzer
+        dico = json.loads(analysis)
 
-        action = action.lower()
-        #action = 'none' OR 'modification' OR 'addition' OR 'deletion'
-        
-        if action == "none" :
-            return {}
-        
-        elif action == "modification" or action == "addition" or action == "deletion" :
-            try:
-                toolcall = json.loads(toolcall)
-            except json.JSONDecodeError as e:
-                raise ValueError(f"Invalid JSON in toolcall: {e}")
-            for day in toolcall :
-                for task in toolcall[day] :
+        results = []
+        print(dico)
+
+        # handle additions
+        if "addition" in dico:
+            print(dico["addition"])
+            for day in dico["addition"]:
+                for task in dico["addition"][day]:
                     payload = {"day": day, "task": task}
-                    response = requests.post(f"http://127.0.0.1:8000/week/{user_id}/add_task", json=payload)
-            return response.json()
-        
-        # elif action == "add":
-        #     day = tokens[1].lower()
-        #     task = " ".join(tokens[2:])
-        #     payload = {"day": day, "task": task}
-        #     response = requests.post(f"http://127.0.0.1:8000/week/{user_id}/add_task", json=payload)
-        #     return response.json()
+                    resp = requests.post(f"http://127.0.0.1:8000/week/{user_id}/add_task", json=payload)
+                    try:
+                        resp.raise_for_status()
+                        results.append(resp.json())
+                    except Exception:
+                        # fall back to text if JSON not available
+                        results.append({"status_code": resp.status_code, "text": resp.text})
 
-        # elif action == "delete":
-        #     day = tokens[1].lower()
-        #     task = " ".join(tokens[2:])
-        #     payload = {"day": day, "task": task}
-        #     response = requests.post(f"http://127.0.0.1:8000/week/{user_id}/delete_task", json=payload)
-        #     return response.json()
+        # handle deletions
+        if "deletion" in dico:
+            for day in dico["deletion"]:
+                for task in dico["deletion"][day]:
+                    payload = {"day": day, "task": task}
+                    resp = requests.post(f"http://127.0.0.1:8000/week/{user_id}/delete_task", json=payload)
+                    try:
+                        resp.raise_for_status()
+                        results.append(resp.json())
+                    except Exception:
+                        results.append({"status_code": resp.status_code, "text": resp.text})
 
-        
-        
-        else:
-            return {"error": "Instruction inconnue"}
+        # return a serializable structure: empty dict if nothing happened, single dict if one result, else list
+        if not results:
+            return {}
+        if len(results) == 1:
+            return results[0]
+        return results
 
     def get_week_json() :
         response = requests.get("http://127.0.0.1:8000/week/1")
@@ -67,10 +68,9 @@ class Orchestrator:
         chatbot_str = self.chatbot.handle_request(user_input)
         analysis_input = "<client>"+user_input+"</client>"+"<coach>"+chatbot_str+"</coach>"+"<JSON>"+Orchestrator.get_week_json()+"</JSON>"
         analysis = self.analyzer.handle_request(analysis_input)
-        action, toolcall = analysis.split(sep=";", maxsplit=2)
-        self.interpret_analysis(analysis)
+        response = self.interpret_analysis(analysis)
         
-        return chatbot_str, action, toolcall
+        return chatbot_str, "", response
 
 
 
@@ -85,6 +85,11 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+def user_to_dict(user: User):
+    return {"id": user.id}
+
 
 # --- Schéma de la requête ---
 class ChatRequest(BaseModel):
@@ -108,8 +113,7 @@ def chat(request: ChatRequest):
        raise HTTPException(status_code=500, detail=str(e))
 
 
-@app.post("/users/")
-def get_or_create_user(user_id: int, db: Session = Depends(get_db)):
+def get_or_create_user_model(user_id: int, db: Session):
     user = db.query(User).filter(User.id == user_id).first()
 
     if user:
@@ -123,17 +127,15 @@ def get_or_create_user(user_id: int, db: Session = Depends(get_db)):
     return user
 
 
-def create_user(username: str, email: str, db: Session = Depends(get_db)):
-    user = User(username=username, email=email)
-    db.add(user)
-    db.commit()
-    db.refresh(user)
-    return user
+@app.post("/users/")
+def get_or_create_user(user_id: int, db: Session = Depends(get_db)):
+    user = get_or_create_user_model(user_id, db)
+    return user_to_dict(user)
+
 
 # Récupérer une week
-@app.get("/week/{user_id}")
-def get_or_create_week(user_id: int, db: Session = Depends(get_db)):
-    get_or_create_user(user_id, db)
+def get_or_create_week_model(user_id: int, db: Session):
+    get_or_create_user_model(user_id, db)
     
     # Chercher la week
     week = db.query(Week).filter(Week.user_id == user_id).first()
@@ -159,6 +161,20 @@ def get_or_create_week(user_id: int, db: Session = Depends(get_db)):
 
     return week
 
+
+@app.get("/week/{user_id}")
+def get_or_create_week(user_id: int, db: Session = Depends(get_db)):
+    week = get_or_create_week_model(user_id, db)
+    return week_to_dict(week)
+
+def week_to_dict(week: Week):
+    return {
+        "id": week.id,
+        "user_id": week.user_id,
+        "week_number": week.week_number,
+        "description": week.description,
+    }
+
 # Ajouter une task dans un jour précis
 class Task(BaseModel):
     day: str
@@ -166,19 +182,20 @@ class Task(BaseModel):
 
 @app.post("/week/{user_id}/add_task")
 def add_task(user_id: int, data: Task, db: Session = Depends(get_db)):
-    week = get_or_create_week(user_id, db)
+    week = get_or_create_week_model(user_id, db)
 
     # Ajouter la task
     week.description[data.day] = week.description[data.day] + [data.task]
     flag_modified(week, "description")
     db.commit()
     db.refresh(week)
-    return week
+    return week_to_dict(week)
+
 
 # Supprimer une task
 @app.post("/week/{user_id}/delete_task")
 def delete_task(user_id: int, data: Task, db: Session = Depends(get_db)):
-    week = get_or_create_week(user_id, db)
+    week = get_or_create_week_model(user_id, db)
     
     if data.task in week.description[data.day]:
         week.description[data.day].remove(data.task)
@@ -186,11 +203,11 @@ def delete_task(user_id: int, data: Task, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(week)
-    return week
+    return week_to_dict(week)
 
 @app.post("/week/{user_id}/delete_day")
 def delete_day(user_id: int, day: str, db: Session = Depends(get_db)):
-    week = get_or_create_week(user_id, db)
+    week = get_or_create_week_model(user_id, db)
 
     if day in week.description:
         week.description[day] = []
@@ -198,12 +215,12 @@ def delete_day(user_id: int, day: str, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(week)
-    return week
+    return week_to_dict(week)
 
 # Supprimer une week
 @app.delete("/week/{user_id}")
 def reset_week(user_id: int, db: Session = Depends(get_db)):
-    week = get_or_create_week(user_id, db)
+    week = get_or_create_week_model(user_id, db)
 
     # Remettre le JSON à zéro
     week.description = {day: [] for day in [
@@ -214,5 +231,5 @@ def reset_week(user_id: int, db: Session = Depends(get_db)):
 
     db.commit()
     db.refresh(week)
-    return week
+    return week_to_dict(week)
 
