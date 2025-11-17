@@ -11,6 +11,7 @@ from gpt_agents.chatbot import Chatbot
 from gpt_agents.analyzer import Analyzer
 from db.database import engine, Base, SessionLocal
 from db.models import User, Week
+import json
 
 
 class Orchestrator:
@@ -18,7 +19,7 @@ class Orchestrator:
         self.analyzer = Analyzer()
         self.chatbot = Chatbot()
 
-    def interpret_analysis(analysis, user_id=1):
+    def interpret_analysis(self, analysis: str, user_id=1):
         action, toolcall = analysis.split(sep=";", maxsplit=2)
 
         action = action.lower()
@@ -28,7 +29,10 @@ class Orchestrator:
             return {}
         
         elif action == "modification" or action == "addition" or action == "deletion" :
-            toolcall = toolcall.json()
+            try:
+                toolcall = json.loads(toolcall)
+            except json.JSONDecodeError as e:
+                raise ValueError(f"Invalid JSON in toolcall: {e}")
             for day in toolcall :
                 for task in toolcall[day] :
                     payload = {"day": day, "task": task}
@@ -57,16 +61,14 @@ class Orchestrator:
     def get_week_json() :
         response = requests.get("http://127.0.0.1:8000/week/1")
         data = response.json()
-        return data.description
+        return json.dumps(data["description"])
     
     def handle_request(self, user_input):
         chatbot_str = self.chatbot.handle_request(user_input)
         analysis_input = "<client>"+user_input+"</client>"+"<coach>"+chatbot_str+"</coach>"+"<JSON>"+Orchestrator.get_week_json()+"</JSON>"
         analysis = self.analyzer.handle_request(analysis_input)
         action, toolcall = analysis.split(sep=";", maxsplit=2)
-        
-        
-        
+        self.interpret_analysis(analysis)
         
         return chatbot_str, action, toolcall
 
