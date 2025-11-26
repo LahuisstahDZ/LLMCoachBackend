@@ -79,6 +79,8 @@ class Orchestrator:
 
 # --- Initialisation de l'application FastAPI ---
 app = FastAPI(title="LLM Coach API")
+BASE_URL = os.getenv("API_BASE_URL", "https://llmcoachbackend.onrender.com")
+
 # Crée les tables si elles n'existent pas
 Base.metadata.create_all(bind=engine)
 
@@ -156,7 +158,7 @@ def get_or_create_week(user_id: int, db: Session = Depends(get_db)):
     return week
 
 def call_get_week(user_id):
-    return requests.get(f"http://127.0.0.1:8000/week/{user_id}")
+    return requests.get(f"{BASE_URL}/week/{user_id}")
 
 # Ajouter une task dans un jour précis
 class Task(BaseModel):
@@ -176,7 +178,7 @@ def add_task(user_id: int, data: Task, db: Session = Depends(get_db)):
     return week
 
 def call_add_task(user_id, payload):
-    return requests.post(f"http://127.0.0.1:8000/week/{user_id}/add_task", json=payload)
+    return requests.post(f"{BASE_URL}/week/{user_id}/add_task", json=payload)
 
 
 # Supprimer une task
@@ -192,7 +194,7 @@ def delete_task(user_id: int, data: Task, db: Session = Depends(get_db)):
     return week
 
 def call_delete_task(user_id, payload):
-    return requests.post(f"http://127.0.0.1:8000/week/{user_id}/delete_task", json=payload)
+    return requests.post(f"{BASE_URL}/week/{user_id}/delete_task", json=payload)
                     
 
 @app.post("/week/{user_id}/delete_day")
