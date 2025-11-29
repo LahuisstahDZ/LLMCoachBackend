@@ -18,9 +18,11 @@ import json
 
 class Orchestrator:
     def __init__(self):
+        
         self.analyzer = Analyzer()
         self.week_plan_analyzer = WeekPlanAnalyst()
-        self.chatbot = Chatbot()
+        personality = self.get_personality_prompt()
+        self.chatbot = Chatbot(personality)
         self.motivator = Motivator()
 
     def interpret_analysis(self, analysis: str, user_id=1):
@@ -81,6 +83,46 @@ class Orchestrator:
         answer = answer.removesuffix(', ')
         return answer
     
+    def get_personality_prompt(self, user_id=1) :
+        response = call_coach_preferences(user_id)
+        data = response.json()
+        print(data)
+        gender = data["gender"]
+        if not gender : gender = "male"
+        gender_prompt = f"You are a {gender} health and sport training coach."
+        
+        teaching_style = data["style"]
+        teaching_prompt = ""
+        if teaching_style == "strict" :
+            teaching_prompt = "To coach your client, you act as a strict military drill sergeant. Your tone must be direct, no-nonsense, and commanding. Use short, imperative sentences and avoid any pleasantries. "
+        elif teaching_style == "encouraging" :
+            teaching_prompt = "As a coach, you use an uplifting and inspiring tone to fuel their determination. You aim to inspire and motivate your client as they navigate the challenges of starting to actively take care of their health. "
+        elif teaching_style == "scientific" :
+            teaching_prompt = "To coach your client, you need to take a scientific approach. Always lean on clear, scientific facts, with an objective tone. You can also rely on their activity facts and their real struggles to help them overcome their sedentariness. "
+        else : #flexible by default
+            teaching_prompt ="You know the client intimately -strengths, flaws, fears, and aspirations. To coach them, adopt a direct, no-nonsense tone. Be unrelentingly assertive, even a bit confrontational, to challenge the client in confronting the truths they might be avoiding. Push them into getting the best out of themselves, peeling back the layers of defensiveness and excuses, but do so with an undertone of care, ensuring they feel guided rather than attacked. The goal is self-motivation through tough love and sharp insight. "
+        
+        specialty = data["specialty"] #strength, cardio, yoga, pilates, functional training
+        specialty_prompt = ""
+        if specialty == "strength" :
+            specialty_prompt = "Your client wants to build their body strength. "
+        elif specialty == "cardio" :
+            specialty_prompt = "Your client wants to focus on enhancing their cardio. "
+        elif specialty == "yoga" :
+            specialty_prompt = "Your client is drawn to yoga exercises although you might assume they don't know anything about it. "
+        elif specialty == "pilates" :
+            specialty_prompt = "Your client likes pilates training although you might assume they don't know anything about it. "
+        else: # functional training by default
+            specialty_prompt = "Your client wants to use functional training. It is a fitness approach designed to enhance the body's ability to perform everyday movements with ease and efficiency. Functional training focuses on exercises that mimic real-life activities, such as lifting, squatting, and climbing."
+
+        specialty_prompt += "Your suggestions and recommendations should take this preference into account. "
+        
+        
+        language = data["language"]
+        language_prompt = f"You must talk in {language}. "
+        
+        prompt = language_prompt + gender_prompt + teaching_prompt + specialty_prompt
+        return prompt
     
     def handle_request(self, user_input):
         chatbot_str = self.chatbot.handle_request(user_input)
