@@ -57,12 +57,12 @@ class Orchestrator:
                         results.append({"status_code": resp.status_code, "text": resp.text})
 
         # return a serializable structure: empty dict if nothing happened, single dict if one result, else list
-        if not results:
+        if len(results)==0 :
             return {}
         if len(results) == 1:
             return results[0]
         print("--- Ending interpret_analysis")
-        return results #TODO : return empty json when no change plz
+        return results 
 
     def get_week_json(self, user_id = 1) :
         response = call_get_week(user_id)
@@ -75,8 +75,8 @@ class Orchestrator:
         answer = ""
         for key in data :
             for i in range(len(data[key])) :
-                answer += data[key][i] + ","
-        answer = answer.removesuffix(',')
+                answer += data[key][i] + ", "
+        answer = answer.removesuffix(', ')
         return answer
     
     def handle_request(self, user_input):
