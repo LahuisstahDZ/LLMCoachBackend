@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from typing import List,Dict
 from gpt_agents.chatbot import Chatbot
 from gpt_agents.analyzer import Analyzer
+from gpt_agents.motivator import Motivator
 from db.database import engine, Base, SessionLocal
 from db.models import User, Week, Settings
 import json
@@ -18,6 +19,7 @@ class Orchestrator:
     def __init__(self):
         self.analyzer = Analyzer()
         self.chatbot = Chatbot()
+        self.motivator = Motivator()
 
     def interpret_analysis(self, analysis: str, user_id=1):
         # parse JSON string returned by the analyzer
@@ -60,20 +62,39 @@ class Orchestrator:
         if len(results) == 1:
             return results[0]
         print("--- Ending interpret_analysis")
-        return results
+        return results #TODO : return empty json when no change plz
 
-    def get_week_json() :
-        response = call_get_week(1)
+    def get_week_json(self, user_id = 1) :
+        response = call_get_week(user_id)
         data = response.json()
         return json.dumps(data["description"])
     
+    def get_training_goals_json(self, user_id) :
+        response = call_training_goals(user_id)
+        data = response.json()
+        answer = ""
+        for key in data :
+            for i in range(len(data[key])) :
+                answer += data[key][i] + ","
+        answer = answer.removesuffix(',')
+        return answer
+    
     def handle_request(self, user_input):
         chatbot_str = self.chatbot.handle_request(user_input)
-        analysis_input = "<client>"+user_input+"</client>"+"<coach>"+chatbot_str+"</coach>"+"<JSON>"+Orchestrator.get_week_json()+"</JSON>"
+        analysis_input = "<client>"+user_input+"</client>"+"<coach>"+chatbot_str+"</coach>"+"<JSON>"+self.get_week_json()+"</JSON>"
         analysis = self.analyzer.handle_request(analysis_input)
         response = self.interpret_analysis(analysis)
         
         return chatbot_str, response
+    
+    def get_motivational_quote(self, u_id:int) :
+        #send general_goals et week to Motivator
+        week = self.get_week_json(user_id = u_id)
+        training_goals = self.get_training_goals_json(u_id)
+        print(training_goals)
+        sentence = self.motivator.handle_request(global_goals=training_goals, week=week)
+        
+        return sentence
 
 
 
@@ -101,7 +122,7 @@ def root():
     return {"message": "API is running on Render"}
 
 #Traiter l'user input
-@app.post("/chat")
+@app.post("/chat", tags=["LLM interactions"])
 def chat(request: ChatRequest):
    orchestrator = Orchestrator()
    try:
@@ -114,6 +135,14 @@ def chat(request: ChatRequest):
    except Exception as e:
        raise HTTPException(status_code=500, detail=str(e))
 
+@app.post("/motivational/{user_id}", tags=["LLM interactions"])
+def motivational_quote(user_id: int):
+    orchestrator = Orchestrator()
+    try :
+        response = orchestrator.get_motivational_quote(user_id)
+        return {"response": response}
+    except Exception as e:
+       raise HTTPException(status_code=500, detail=str(e))
 
 #Récupérer un user
 @app.post("/users/")
@@ -135,7 +164,7 @@ def get_or_create_user(user_id: int, db: Session = Depends(get_db)):
 
 
 # Récupérer une week
-@app.get("/week/{user_id}")
+@app.get("/week/{user_id}", tags=["Weeks"])
 def get_or_create_week(user_id: int, db: Session = Depends(get_db)):
     print("Getting or creating week for user", user_id)
     get_or_create_user(user_id, db)
@@ -165,7 +194,7 @@ class Task(BaseModel):
     day: str
     task: str
 
-@app.post("/week/{user_id}/add_task")
+@app.post("/week/{user_id}/add_task", tags=["Weeks"])
 def add_task(user_id: int, data: Task, db: Session = Depends(get_db)):
     week = get_or_create_week(user_id, db)
     print("week before addition:", week)
@@ -182,7 +211,7 @@ def call_add_task(user_id, payload):
 
 
 # Supprimer une task
-@app.post("/week/{user_id}/delete_task")
+@app.post("/week/{user_id}/delete_task", tags=["Weeks"])
 def delete_task(user_id: int, data: Task, db: Session = Depends(get_db)):
     week = get_or_create_week(user_id, db)
     
@@ -197,7 +226,7 @@ def call_delete_task(user_id, payload):
     return requests.post(f"{BASE_URL}/week/{user_id}/delete_task", json=payload)
                     
 
-@app.post("/week/{user_id}/delete_day")
+@app.post("/week/{user_id}/delete_day", tags=["Weeks"])
 def delete_day(user_id: int, day: str, db: Session = Depends(get_db)):
     week = get_or_create_week(user_id, db)
 
@@ -210,7 +239,7 @@ def delete_day(user_id: int, day: str, db: Session = Depends(get_db)):
     return week
 
 # Supprimer une week
-@app.delete("/week/{user_id}")
+@app.delete("/week/{user_id}", tags=["Weeks"])
 def reset_week(user_id: int, db: Session = Depends(get_db)):
     week = get_or_create_week(user_id, db)
 
@@ -226,7 +255,7 @@ def reset_week(user_id: int, db: Session = Depends(get_db)):
     return week
 
 # Récupérer les settings
-@app.get("/settings/{user_id}")
+@app.get("/settings/{user_id}", tags=["Settings"])
 def get_or_create_settings(user_id: int, db: Session = Depends(get_db)):
     print("Getting or creating settings for user", user_id)
     get_or_create_user(user_id, db)
@@ -252,13 +281,16 @@ def get_or_create_settings(user_id: int, db: Session = Depends(get_db)):
 
 #Manage training_goals
 #format de training_goal = {random_type_de_goal : ["goal1", "goal2"], ...}
-@app.get("/settings/{user_id}/training_goals")
+@app.get("/settings/{user_id}/training_goals",tags=["Settings - training goal"])
 def get_training_goals(user_id: int, db: Session = Depends(get_db)):
     settings = get_or_create_settings(user_id, db)
     return settings.training_goals
 
+def call_training_goals(user_id):
+    return requests.get(f"{BASE_URL}/settings/{user_id}/training_goals")
+
 #add goal type (like "Outcome", "Learning", "Process", "Character")
-@app.get("/settings/{user_id}/training_goals/{goal_type}")
+@app.get("/settings/{user_id}/training_goals/{goal_type}",tags=["Settings - training goal"])
 def get_or_create_training_goal_type(user_id: int, goal_type: str, db: Session = Depends(get_db)):
     settings = get_or_create_settings(user_id, db)
     content = settings.training_goals.get(goal_type, None)
@@ -274,7 +306,7 @@ def get_or_create_training_goal_type(user_id: int, goal_type: str, db: Session =
     return content
 
 #delete goal type
-@app.delete("/settings/{user_id}/training_goals/{goal_type}")
+@app.delete("/settings/{user_id}/training_goals/{goal_type}",tags=["Settings - training goal"])
 def delete_training_goal_type(user_id:int, goal_type:str, db:Session = Depends(get_db)):
     settings = get_or_create_settings(user_id, db)
     
@@ -291,7 +323,7 @@ class Goal(BaseModel):
     content : str
 
 #add precise goal
-@app.post("/settings/{user_id}/training_goals/{goal_type}/add")
+@app.post("/settings/{user_id}/training_goals/{goal_type}/add",tags=["Settings - training goal"])
 def add_training_goal(user_id:int, data: Goal, db:Session = Depends(get_db)):
     settings = get_or_create_settings(user_id, db)
     get_or_create_training_goal_type(user_id, data.goal_type, db)
@@ -304,7 +336,7 @@ def add_training_goal(user_id:int, data: Goal, db:Session = Depends(get_db)):
     return settings.training_goals
 
 #delete precise goal
-@app.post("/settings/{user_id}/training_goals/{goal_type}/delete")
+@app.post("/settings/{user_id}/training_goals/{goal_type}/delete",tags=["Settings - training goal"])
 def delete_training_goal(user_id:int, data: Goal, db:Session = Depends(get_db)):
     settings = get_or_create_settings(user_id, db)
     
@@ -320,13 +352,13 @@ def delete_training_goal(user_id:int, data: Goal, db:Session = Depends(get_db)):
 
 #Manage coach_preferences
 #format de coach_preferences = {random_type_de_preférence : ["préférence"], ...} (oui, toutes les valeurs sont des listes à max 1 élément)
-@app.get("/settings/{user_id}/coach_preferences")
+@app.get("/settings/{user_id}/coach_preferences",tags=["Settings - coach"])
 def get_coach_preferences(user_id: int, db: Session = Depends(get_db)):
     settings = get_or_create_settings(user_id, db)
     return settings.coach_preferences
 
 #add goal type (like "Outcome", "Learning", "Process", "Character")
-@app.get("/settings/{user_id}/coach_preferences/{pref_type}")
+@app.get("/settings/{user_id}/coach_preferences/{pref_type}",tags=["Settings - coach"])
 def get_or_create_training_pref_type(user_id: int, pref_type: str, db: Session = Depends(get_db)):
     settings = get_or_create_settings(user_id, db)
     content = settings.coach_preferences.get(pref_type, None)
@@ -342,7 +374,7 @@ def get_or_create_training_pref_type(user_id: int, pref_type: str, db: Session =
     return content
 
 #delete goal type
-@app.delete("/settings/{user_id}/coach_preferences/{pref_type}")
+@app.delete("/settings/{user_id}/coach_preferences/{pref_type}",tags=["Settings - coach"])
 def delete_training_pref_type(user_id:int, pref_type:str, db:Session = Depends(get_db)):
     settings = get_or_create_settings(user_id, db)
     
@@ -359,7 +391,7 @@ class Pref(BaseModel):
     content : str
 
 #set precise pref
-@app.post("/settings/{user_id}/coach_preferences/{pref_type}/set")
+@app.post("/settings/{user_id}/coach_preferences/{pref_type}/set",tags=["Settings - coach"])
 def set_coach_preference(user_id:int, data: Pref, db:Session = Depends(get_db)):
     settings = get_or_create_settings(user_id, db)
     get_or_create_training_pref_type(user_id, data.pref_type, db)
@@ -372,7 +404,7 @@ def set_coach_preference(user_id:int, data: Pref, db:Session = Depends(get_db)):
     return settings.coach_preferences
 
 #delete precise goal
-@app.post("/settings/{user_id}/coach_preferences/{pref_type}/delete")
+@app.post("/settings/{user_id}/coach_preferences/{pref_type}/delete",tags=["Settings - coach"])
 def delete_coach_preference(user_id:int, data: Pref, db:Session = Depends(get_db)):
     settings = get_or_create_settings(user_id, db)
     
