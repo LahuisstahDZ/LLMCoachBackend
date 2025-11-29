@@ -24,6 +24,7 @@ class Orchestrator:
         personality = self.get_personality_prompt()
         self.chatbot = Chatbot(personality)
         self.motivator = Motivator()
+        self.conv_history = []
 
     def interpret_analysis(self, analysis: str, user_id=1):
         # parse JSON string returned by the analyzer
@@ -61,12 +62,11 @@ class Orchestrator:
                         results.append({"status_code": resp.status_code, "text": resp.text})
 
         # return a serializable structure: empty dict if nothing happened, single dict if one result, else list
+        print("--- Ending interpret_analysis")
         if len(results)==0 :
             return {}
-        if len(results) == 1:
-            return results[0]
-        print("--- Ending interpret_analysis")
-        return results 
+        return results[-1]
+        
 
     def get_week_json(self, user_id = 1) :
         response = call_get_week(user_id)
@@ -86,7 +86,6 @@ class Orchestrator:
     def get_personality_prompt(self, user_id=1) :
         response = call_coach_preferences(user_id)
         data = response.json()
-        print(data)
         gender = data["gender"]
         if not gender : gender = "male"
         gender_prompt = f"You are a {gender} health and sport training coach."
@@ -124,12 +123,31 @@ class Orchestrator:
         prompt = language_prompt + gender_prompt + teaching_prompt + specialty_prompt
         return prompt
     
+    def build_conv_input(self) :
+        output = ""
+        for item in self.conv_history :
+            if item["role"] == "user" :
+                role = "client"
+            else :
+                role = "coach"
+            output += f"<{role}>{item['content']}<\{role}>"
+        return output
+    
+    def manage_history(self, role, content) :
+        self.conv_history.append({"role": role, "content": content})
+        if len(self.conv_history) > 5 :
+            self.conv_history.pop(0)
+    
     def handle_request(self, user_input):
-        chatbot_str = self.chatbot.handle_request(user_input)
-        analysis_input = "<client>"+user_input+"</client>"+"<coach>"+chatbot_str+"</coach>"
+        self.manage_history("user", user_input)
+        chatbot_str = self.chatbot.handle_request(self.conv_history)
+        self.manage_history("assistant", chatbot_str)
         
+        analysis_input = self.build_conv_input()
+        print("analysis input : ")
+        print(analysis_input)
         analysis = self.analyzer.detect_week_change(analysis_input) #is a week plan modification necessary ? 
-
+        print("analysis outcome :", analysis)
         #analysis = true or false
         if analysis.lower() == "true" :
             week_plan_input = analysis_input +"<JSON>"+self.get_week_json()+"</JSON>"
@@ -145,7 +163,6 @@ class Orchestrator:
         #send general_goals et week to Motivator
         week = self.get_week_json(user_id = u_id)
         training_goals = self.get_training_goals_json(u_id)
-        print(training_goals)
         sentence = self.motivator.handle_request(global_goals=training_goals, week=week)
         
         return sentence
@@ -178,7 +195,6 @@ def root():
 #Traiter l'user input
 @app.post("/chat", tags=["LLM interactions"])
 def chat(request: ChatRequest):
-   orchestrator = Orchestrator()
    try:
        user_input = request.user_prompt
        if user_input.lower() in ["exit", "quit"]:
@@ -191,7 +207,6 @@ def chat(request: ChatRequest):
 
 @app.post("/motivational/{user_id}", tags=["LLM interactions"])
 def motivational_quote(user_id: int):
-    orchestrator = Orchestrator()
     try :
         response = orchestrator.get_motivational_quote(user_id)
         return {"response": response}
@@ -473,3 +488,5 @@ def delete_coach_preference(user_id:int, data: Pref, db:Session = Depends(get_db
             db.refresh(settings)
     
     return settings.coach_preferences
+
+orchestrator = Orchestrator()

@@ -22,9 +22,9 @@ class Chatbot:
         self.system_prompt = personality + "You provide evidence-based support to clients seeking help with physical activity behavior change. You should maintain your health coach persona while responding. You must maintain a friendly, warm, and empathetic tone. You must not give advice for medical or mental health concerns. Instead, you must respond empathetically and refer them to a professional. Keep your responses brief and conversational. You and the client are setting up a physical activity program for the week"
 
 
-    def handle_request(self, user_input) :
+    def handle_request(self, conv) :
         response = self.model.chat.completions.create(
-        messages=[{"role": "system", "content": self.system_prompt}, {"role": "user", "content": user_input}],
+        messages=[{"role": "system", "content": self.system_prompt}]+conv,
         max_tokens=4096,
         temperature=1.0,
         top_p=1.0,

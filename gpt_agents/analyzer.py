@@ -26,7 +26,7 @@ class Analyzer:
 
 
     def detect_week_change(self, user_input) :
-        full_prompt = self.system_prompt + "The client has a physical activity schedule with multiple goals they should achieve for the week. You have to detect if the conversation may leads to a modificaton of the schedule. You have to answer 'true' if the schedule may have to be modified to match the conversation. You should answer 'false' if the conversation does not imply a change in the physical activites schedule. "
+        full_prompt = self.system_prompt + "The client has a physical activity schedule with multiple goals they should achieve for the week. You have to detect if the conversation may leads to a modificaton of the schedule. You have to answer 'true' if the conversation makes an allusion to a physical activity to come. You should also answer true if the conversation is about abandonning or deleting physical activities . You should answer 'false' if the conversation does not imply a change in the physical activites schedule. "
         full_prompt += self.system_prompt_conclusion
         response = self.model.chat.completions.create(
         messages=[{"role": "system", "content": full_prompt}, {"role": "user", "content": user_input}],
