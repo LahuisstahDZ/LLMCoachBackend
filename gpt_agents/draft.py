@@ -3,11 +3,13 @@ from fastapi import FastAPI, HTTPException
 from pydantic import BaseModel
 from chatbot import Chatbot
 from analyzer import Analyzer
+from week_plan_analyzer import WeekPlanAnalyst
 
 class Orchestrator:
     def __init__(self):
         self.analyzer = Analyzer()
         self.chatbot = Chatbot()
+        self.week_plan_analyst = WeekPlanAnalyst()
 
     def handle_request(self, user_input):
         analysis = self.analyzer.handle_request(user_input)

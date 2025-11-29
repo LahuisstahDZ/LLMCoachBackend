@@ -9,6 +9,7 @@ from pydantic import BaseModel
 from typing import List,Dict
 from gpt_agents.chatbot import Chatbot
 from gpt_agents.analyzer import Analyzer
+from gpt_agents.week_plan_analyzer import WeekPlanAnalyst
 from gpt_agents.motivator import Motivator
 from db.database import engine, Base, SessionLocal
 from db.models import User, Week, Settings
@@ -18,6 +19,7 @@ import json
 class Orchestrator:
     def __init__(self):
         self.analyzer = Analyzer()
+        self.week_plan_analyzer = WeekPlanAnalyst()
         self.chatbot = Chatbot()
         self.motivator = Motivator()
 
@@ -79,11 +81,21 @@ class Orchestrator:
         answer = answer.removesuffix(', ')
         return answer
     
+    
     def handle_request(self, user_input):
         chatbot_str = self.chatbot.handle_request(user_input)
-        analysis_input = "<client>"+user_input+"</client>"+"<coach>"+chatbot_str+"</coach>"+"<JSON>"+self.get_week_json()+"</JSON>"
-        analysis = self.analyzer.handle_request(analysis_input)
-        response = self.interpret_analysis(analysis)
+        analysis_input = "<client>"+user_input+"</client>"+"<coach>"+chatbot_str+"</coach>"
+        
+        analysis = self.analyzer.detect_week_change(analysis_input) #is a week plan modification necessary ? 
+
+        #analysis = true or false
+        if analysis.lower() == "true" :
+            week_plan_input = analysis_input +"<JSON>"+self.get_week_json()+"</JSON>"
+            #make a llm call to modify the week plan
+            analysis = self.week_plan_analyzer.handle_request(week_plan_input) 
+            response = self.interpret_analysis(analysis)
+        else :
+            response = {}
         
         return chatbot_str, response
     
@@ -356,6 +368,9 @@ def delete_training_goal(user_id:int, data: Goal, db:Session = Depends(get_db)):
 def get_coach_preferences(user_id: int, db: Session = Depends(get_db)):
     settings = get_or_create_settings(user_id, db)
     return settings.coach_preferences
+
+def call_coach_preferences(user_id):
+    return requests.get(f"{BASE_URL}/settings/{user_id}/coach_preferences")
 
 #add goal type (like "Outcome", "Learning", "Process", "Character")
 @app.get("/settings/{user_id}/coach_preferences/{pref_type}",tags=["Settings - coach"])
