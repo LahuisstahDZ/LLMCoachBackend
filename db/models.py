@@ -1,4 +1,5 @@
-from sqlalchemy import Column, Integer, String, ForeignKey
+from sqlalchemy import Column, Integer, String, ForeignKey, Date
+from sqlalchemy.sql import func
 from sqlalchemy.dialects.postgresql import JSONB, ARRAY
 from sqlalchemy.orm import relationship
 from db.database import Base
@@ -9,6 +10,7 @@ class User(Base):
     id = Column(Integer, primary_key=True, index=True)
     weeks = relationship("Week", back_populates="user")
     settings = relationship("Settings", back_populates="user")
+    credentials = relationship("Credentials", back_populates="user")
     social = relationship("Social", back_populates="user")
     
 
@@ -39,6 +41,22 @@ class Settings(Base):
     coach_preferences = Column(JSONB, default = lambda:{})
     training_goals = Column(JSONB, default = lambda:{})
     user = relationship("User", back_populates="settings")
+
+class Credentials(Base):
+    __tablename__ = "credentials"
+
+    id = Column(Integer, primary_key=True, index=True)
+    user_id = Column(Integer, ForeignKey("user.id"))
+    
+    username = Column(String, default="Francesco")
+    activity = Column(String, default="")
+    gender = Column(String, default = "Female")
+    birthdate = Column(Date, nullable=False, server_default=func.now())
+    height = Column(String, default="165")
+    weight = Column(String, default="70")
+    
+    user = relationship("User", back_populates="credentials")
+
 
 class Social(Base):
     __tablename__ = "social"
