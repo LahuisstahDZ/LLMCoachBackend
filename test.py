@@ -23,8 +23,7 @@ class Orchestrator:
         
         self.analyzer = Analyzer()
         self.week_plan_analyzer = WeekPlanAnalyst()
-        personality = self.get_personality()
-        self.chatbot = Chatbot(personality)
+        self.chatbot = Chatbot()
         self.dialogue_state = DialogueStateManager()
         self.motivator = Motivator()
         self.conv_history = []
@@ -49,6 +48,8 @@ class Orchestrator:
             for day in dico["addition"]:
                 for task in dico["addition"][day]:
                     print(f"Adding task '{task}' to day '{day}'")
+                    #dict_task = json.loads(task)
+                    #print("-- title : ", dict_task['title'])
                     payload = {"day": day, "task": task}
                     resp = call_add_task(user_id, payload)
                     try:
@@ -63,6 +64,9 @@ class Orchestrator:
         if "deletion" in dico:
             for day in dico["deletion"]:
                 for task in dico["deletion"][day]:
+                    
+                    if type(task) == dict :
+                        task = task['title']
                     print(f"Deleting task '{task}' from day '{day}'")
                     payload = {"day": day, "task": task}
                     resp = call_delete_task(user_id, payload)
@@ -76,6 +80,14 @@ class Orchestrator:
         print("--- Ending interpret_analysis")
         if len(results)==0 :
             return {}
+        
+        #print("what 'interpret analysis' returned :", results[-1])
+        #update of the days' date
+        #final_return = results[-1]
+        #final_return['description']
+        #today_nb = datetime.today().day
+        #today_name = datetime.today().strftime("%A").lower();
+        
         return results[-1]
         
     def get_week_json(self, user_id = 1) :
@@ -94,8 +106,10 @@ class Orchestrator:
         return answer
     
     def get_personality(self, user_id=1) :
+        print("-- Start of function 'get_personality'")
         response = call_coach_preferences(user_id)
         data = response.json()
+        #data = {"language" : "french", "gender":"male", "style":"", "specialty":""};
         dico_personality = {};
         
         
@@ -173,14 +187,13 @@ class Orchestrator:
             return self.possible_tasks['Goal setting']
     
     def handle_request(self, user_input):
-        cred = self.get_credentials()
-        response = [1, cred]
-        return "", response
-        
-        
         self.manage_history("user", user_input)
         ongoing_task = self.get_ongoing_task()
         
+        if not self.chatbot.personalitySet :
+            print("Personality not set yet")
+            personality = self.get_personality()
+            self.chatbot.set_personality(personality)
         
         chatbot_str = self.chatbot.handle_request(self.conv_history, ongoing_task)
         self.manage_history("assistant", chatbot_str)
@@ -188,9 +201,8 @@ class Orchestrator:
         conv_history = self.build_conv_input()
         
         
-        
         analysis = self.analyzer.detect_week_change(conv_history) #is a week plan modification necessary ? 
-        print("analysis outcome :", analysis)
+        print("analysis outcome (week change?) :", analysis)
         #analysis = true or false
         if analysis.lower() == "true" :
             week_plan_input = conv_history +"<JSON>"+self.get_week_json()+"</JSON>"
@@ -305,13 +317,11 @@ def call_get_week(user_id):
 # Ajouter une task dans un jour précis
 class Task(BaseModel):
     day: str
-    task: str
+    task: Dict[str, str]  
 
 @app.post("/week/{user_id}/add_task", tags=["Weeks"])
 def add_task(user_id: int, data: Task, db: Session = Depends(get_db)):
     week = get_or_create_week(user_id, db)
-    print("week before addition:", week)
-    print("week description:", week.description)
     # Ajouter la task
     week.description[data.day] = week.description[data.day] + [data.task]
     flag_modified(week, "description")
@@ -322,14 +332,18 @@ def add_task(user_id: int, data: Task, db: Session = Depends(get_db)):
 def call_add_task(user_id, payload):
     return requests.post(f"{BASE_URL}/week/{user_id}/add_task", json=payload)
 
-
+class DeleteTask(BaseModel):
+    day: str
+    task: str
 # Supprimer une task
 @app.post("/week/{user_id}/delete_task", tags=["Weeks"])
-def delete_task(user_id: int, data: Task, db: Session = Depends(get_db)):
+def delete_task(user_id: int, data: DeleteTask, db: Session = Depends(get_db)):
     week = get_or_create_week(user_id, db)
     
-    if data.task in week.description[data.day]:
-        week.description[data.day].remove(data.task)
+    list_task_titles = [item['title'] for item in week.description[data.day] if 'title' in item]
+    
+    if data.task in list_task_titles :
+        week.description[data.day] = [item for item in week.description[data.day] if item['title'] != data.task]
         flag_modified(week, "description")
         db.commit()
         db.refresh(week)
@@ -370,7 +384,7 @@ def reset_week(user_id: int, db: Session = Depends(get_db)):
 # Récupérer les settings
 @app.get("/settings/{user_id}", tags=["Settings"])
 def get_or_create_settings(user_id: int, db: Session = Depends(get_db)):
-    print("Getting or creating settings for user", user_id)
+    print("-- Start of function @app'get_or_create_settings' for user", user_id)
     get_or_create_user(user_id, db)
     
     # Chercher la settings
@@ -467,10 +481,12 @@ def delete_training_goal(user_id:int, data: Goal, db:Session = Depends(get_db)):
 #format de coach_preferences = {random_type_de_preférence : ["préférence"], ...} (oui, toutes les valeurs sont des listes à max 1 élément)
 @app.get("/settings/{user_id}/coach_preferences",tags=["Settings - coach"])
 def get_coach_preferences(user_id: int, db: Session = Depends(get_db)):
+    print("-- Start of function @app'get_coach_preferences'")
     settings = get_or_create_settings(user_id, db)
     return settings.coach_preferences
 
 def call_coach_preferences(user_id):
+    print("-- Start of function 'call_coach_preferences'")
     return requests.get(f"{BASE_URL}/settings/{user_id}/coach_preferences")
 
 #add goal type (like "Outcome", "Learning", "Process", "Character")
