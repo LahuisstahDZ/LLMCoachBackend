@@ -15,6 +15,7 @@ from gpt_agents.motivator import Motivator
 from db.database import engine, Base, SessionLocal
 from db.models import User, Week, Settings, Credentials
 import json
+from datetime import datetime
 
 
 class Orchestrator:
@@ -129,6 +130,23 @@ class Orchestrator:
         
         return dico_personality
     
+    def get_credentials(self, user_id=1) :
+        response = call_credentials(user_id)
+        print("response : ", response)
+        data = response.json()
+        print("data : ", data)
+        answer = data.copy()
+        print("answer : ", answer)
+        answer.pop("id", answer)
+        answer.pop("user_id", answer)
+        
+        birthdate = datetime.strptime(answer["birthdate"], '%Y-%m-%d')
+        today = datetime.today()
+        age = today.year - birthdate.year - ((today.month, today.day) < (birthdate.month, birthdate.day))
+        answer["age"] = age
+        
+        return answer
+    
     def build_conv_input(self) :
         output = ""
         for item in self.conv_history :
@@ -155,6 +173,11 @@ class Orchestrator:
             return self.possible_tasks['Goal setting']
     
     def handle_request(self, user_input):
+        cred = self.get_credentials()
+        response = [1, cred]
+        return "", response
+        
+        
         self.manage_history("user", user_input)
         ongoing_task = self.get_ongoing_task()
         
@@ -191,8 +214,8 @@ class Orchestrator:
 
 # --- Initialisation de l'application FastAPI ---
 app = FastAPI(title="LLM Coach API")
-BASE_URL = os.getenv("API_BASE_URL", "https://llmcoachbackend.onrender.com")
-
+#BASE_URL = os.getenv("API_BASE_URL", "https://llmcoachbackend.onrender.com")
+BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 # Crée les tables si elles n'existent pas
 Base.metadata.create_all(bind=engine)
 
@@ -211,6 +234,7 @@ class ChatRequest(BaseModel):
 @app.get("/")
 def root():
     return {"message": "API is running on Render"}
+
 
 #Traiter l'user input
 @app.post("/chat", tags=["LLM interactions"])
@@ -532,6 +556,8 @@ def get_or_create_credentials(user_id: int, db: Session = Depends(get_db)):
     print("Returning credentials for user", user_id)
     return credentials
 
+def call_credentials(user_id):
+    return requests.get(f"{BASE_URL}/credentials/{user_id}")
 
 @app.get("/credentials/{user_id}/username",tags=["Credentials - username"])
 def get_username(user_id: int, db: Session = Depends(get_db)):
