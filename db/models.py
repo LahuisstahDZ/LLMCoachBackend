@@ -54,6 +54,7 @@ class Credentials(Base):
     birthdate = Column(Date, nullable=False, server_default=func.now())
     height = Column(String, default="165")
     weight = Column(String, default="70")
+    memory = Column(ARRAY(String), default=list)
     
     user = relationship("User", back_populates="credentials")
 

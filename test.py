@@ -1,5 +1,7 @@
 import os
 import requests
+import json
+from datetime import datetime
 from openai import AzureOpenAI
 from fastapi import FastAPI, HTTPException, Depends
 from sqlalchemy.orm import Session
@@ -7,15 +9,20 @@ from sqlalchemy.orm.attributes import flag_modified
 from sqlalchemy import update
 from pydantic import BaseModel
 from typing import List,Dict
+
 from gpt_agents.chatbot import Chatbot
 from gpt_agents.dialogue_state_manager import DialogueStateManager
 from gpt_agents.analyzer import Analyzer
+from gpt_agents.memory import Memory
+from gpt_agents.toolcall_generation import ToolcallGenerator
+from gpt_agents.toolcall_prediction import ToolcallPredictor
 from gpt_agents.week_plan_analyzer import WeekPlanAnalyst
 from gpt_agents.motivator import Motivator
+
 from db.database import engine, Base, SessionLocal
 from db.models import User, Week, Settings, Credentials
-import json
-from datetime import datetime
+import re
+
 
 
 class Orchestrator:
@@ -25,7 +32,11 @@ class Orchestrator:
         self.week_plan_analyzer = WeekPlanAnalyst()
         self.chatbot = Chatbot()
         self.dialogue_state = DialogueStateManager()
+        self.memory = Memory()
+        self.toolcall_predictor = ToolcallPredictor()
+        self.toolcall_generator = ToolcallGenerator()
         self.motivator = Motivator()
+        self.credentials = {}
         self.conv_history = []
         
         self.possible_tasks = {"Onboarding" : "Your current task is to welcome the client to the program and align expectations between them and you as the health coach.\nFirst, inform the client that they will design their own physical activity plan, which should reflect their preferences, interests, and access to resources. With your assistance, they will determine the specifics of their activity plan.\nSecond, confirm their understanding and ask if they have any questions or concerns before getting started.",
@@ -35,6 +46,13 @@ class Orchestrator:
             "Goal setting" : "Your current task is to help your client set a physical activity goal.First, help them set a short term goal, if they have not already identified one themselves.A good goal should adhere to the FITT (Frequency, Intensity, Time, Type) model to help them plan the specifics of an physicalactivity regimen. The goal the client identifies should adhere to the FITT model.\n- Frequency: How many days of physical activity in the week?\n- Intensity: Will it be light, moderate, or vigorous intensity?\n- Time: How long will the physical activity session be? How many total minutes? What days of the week? What time of the day?\n- Type: What kind of activities will the client do?\nYou should assist the client in setting a FITT goal, asking one question at a time.Let the client know that these goals can be changed as often as necessary. Encourage setting realistic goals and ask questions toprobe if these goals are realistic, measurable, and specific, but don’t tell the client what to do. Always provide justification for yoursuggestions.You have access to their health data using the ‘describe‘ and ‘visualize‘ functions. You should make use of this information tohelp them set realistic goals.\nWhy is this task important?This will add to/build from the discussion of the resources or challenges they may have in store. Connecting their short term goal to largermotivations can help them stay motivated.",
             "Advice" : "Your current task is to help the client overcome obstacles to their current goal.\nFirst, ask the client what resources they have available to reach their goals (e.g., available facilities, equipment, support).\nSecond, ask them if they anticipate any possible barriers or challenges.\nThird, ask them if they have any ideas for possible solutions.\nAs a facilitator, an important part of your job is tuning into the negative, self-destructive thoughts, helping the client become more aware of their negative influence on motivation. If the client expresses negative or self-defeating thoughts, suggest ways to replace negative thoughts with balanced, positive ones.Problem-solve with the client to make their activity more enjoyable baed on their circumstances, life-constraints and inferences from their health data.\nProblem: Discomfort\nReframing: Muscle soreness from inactivity is normal.\nSolution: Walk lightly for 5 minutes before and after exercise. Consider light stretching.\n\nProblem: Lack of Motivation\nReframing: It’s common to have varying motivation levels.\nSolution: Reflect on your goals and benefits of activity, reward progress, recall past motivations, and take incremental steps.\n\nProblem: No Energy\nReframing: Exercise can boost energy levels.\nSolution: Remember how revitalized you felt after previous walks.\n\nProblem: No Time\nReframing: Inactive people have as much free time as those who exercise.\nSolution: Schedule exercise, walk during breaks, and integrate walking into daily routines, like taking stairs or parking farther away.\n\nProblem: Feeling Sick\nReframing: Illness can disrupt exercise routines.\nSolution: Gradually increase activity in short sessions throughout the day.\n\nProblem: Stress\nReframing: Exercise is an effective stress reliever.\nSolution: Take brisk walks, reflecting on post-exercise relaxation.\n\nProblem: Feeling Ashamed\nReframing: Starting to exercise can feel daunting.\nSolution: Focus on health over others’ opinions. Remind yourself each session will get easier.\n\nProblem: Feeling Unsafe\nReframing: Concerns about safety can deter walking.\nSolution: Follow safety tips like wearing visible clothing, walking in populated areas, and sharing your route with someone.\n\nProblem: Feeling Unsupported\nReframing: Lack of social support can affect motivation.\nSolution: Seek encouragement from friends or groups, join a walking club, and value personal exercise time.\n\nProblem: Weather\nReframing: Don’t let weather conditions stop you.\nSolution: Walk indoors, dress appropriately for the weather, and stay hydrated",
             }
+    def get_motivational_quote(self, u_id:int) :
+        #send general_goals et week to Motivator
+        week = self.get_week_json(user_id = u_id)
+        training_goals = self.get_training_goals_json(u_id)
+        sentence = self.motivator.handle_request(global_goals=training_goals, week=week)
+        
+        return sentence
 
     def interpret_analysis(self, analysis: str, user_id=1):
         # parse JSON string returned by the analyzer
@@ -81,13 +99,6 @@ class Orchestrator:
         if len(results)==0 :
             return {}
         
-        #print("what 'interpret analysis' returned :", results[-1])
-        #update of the days' date
-        #final_return = results[-1]
-        #final_return['description']
-        #today_nb = datetime.today().day
-        #today_name = datetime.today().strftime("%A").lower();
-        
         return results[-1]
         
     def get_week_json(self, user_id = 1) :
@@ -95,7 +106,7 @@ class Orchestrator:
         data = response.json()
         return json.dumps(data["description"])
     
-    def get_training_goals_json(self, user_id) :
+    def get_training_goals_json(self, user_id=1) :
         response = call_training_goals(user_id)
         data = response.json()
         answer = ""
@@ -143,7 +154,12 @@ class Orchestrator:
         dico_personality["language"] = language
         
         return dico_personality
-    
+
+    def get_memory(self, user_id = 1) :
+        response = call_get_memory(user_id)
+        data = response.json()
+        return json.dumps(data)
+   
     def get_credentials(self, user_id=1) :
         response = call_credentials(user_id)
         print("response : ", response)
@@ -159,7 +175,12 @@ class Orchestrator:
         age = today.year - birthdate.year - ((today.month, today.day) < (birthdate.month, birthdate.day))
         answer["age"] = age
         
-        return answer
+        bmi = float(answer["weight"])/(float(answer["height"])**2)
+        answer["bmi"] = bmi
+        
+        print("credentials =", answer)
+        self.credentials = answer
+        #return answer
     
     def build_conv_input(self) :
         output = ""
@@ -176,6 +197,9 @@ class Orchestrator:
         if len(self.conv_history) > 5 :
             self.conv_history.pop(0)
     
+    def pop_history(self) :
+        self.conv_history.pop()
+    
     def get_ongoing_task(self) :
         history = self.build_conv_input()
         task = self.dialogue_state.handle_request(history)
@@ -186,20 +210,91 @@ class Orchestrator:
         else :
             return self.possible_tasks['Goal setting']
     
+    def update_memory(self, history) :
+        print("-- Start of function 'update_memory")
+        if not self.memory.memorySet :
+            print("Memory not set yet")
+            self.memory.set_memory(self.get_memory())
+        
+        memory_output = self.memory.update_memory(history)
+        if memory_output=="false" :
+            return
+        self.memory.set_memory(memory_output)
+        new_memory = json.loads(memory_output)
+        call_set_memory(1, new_memory)
+   
+    def use_toolcall(self, toolcall) :
+        # Remove square brackets and split by commas
+        toolcall = toolcall.strip("[]")
+        function_calls = re.split(r",\s*(?![^()]*\))", toolcall)
+
+        # Parse each function call
+        toolcall_dict = {}
+        for call in function_calls:
+            match = re.match(r"(\w+)\(([^)]*)\)", call.strip())
+            if match:
+                func_name = match.group(1)
+                param = match.group(2).strip()
+                toolcall_dict[func_name] = param if param else ""
+        toolcall_dict["memory"] = "" #force the call to memory because it is so great
+        
+        answer = "Here are some additional information. "
+        for func in toolcall_dict.keys() :
+            func = func.lower()
+            if func == "week" :
+                answer += "This week training plan is : "+self.get_week_json()+"."
+            elif func == "credentials" :
+                print("Self.credentials : ", self.credentials)
+                if len(self.credentials) == 0 :
+                    self.get_credentials()
+                
+                #BMI, age, gender, career
+                param = toolcall_dict[func].lower()
+                if param=="bmi" :
+                    answer += "The client's BMI is "+self.credentials["bmi"]+"."
+                if param=="age" :
+                    answer += "The client is "+self.credentials["age"]+" years old."
+                if param=="gender":
+                    answer += "The client is a "+self.credentials["gender"]+"."
+                if param=="career":
+                    answer += "The client occupation is "+self.credentials["activity"]+"."
+            elif func == "training_goals" :
+                answer += "The training goals of the user are : "+self.get_training_goals_json()+"."
+            elif func == "memory" :
+                answer += "The user data stored in memory is : "+self.get_memory()+"."
+        print("toolcall return : ", answer)
+        return answer
+   
     def handle_request(self, user_input):
+        ## handle user input
         self.manage_history("user", user_input)
         ongoing_task = self.get_ongoing_task()
         
+        ## generate first answer
         if not self.chatbot.personalitySet :
-            print("Personality not set yet")
+            print("Chatbot personality not set yet")
             personality = self.get_personality()
             self.chatbot.set_personality(personality)
         
         chatbot_str = self.chatbot.handle_request(self.conv_history, ongoing_task)
         self.manage_history("assistant", chatbot_str)
-        
         conv_history = self.build_conv_input()
         
+        ## generate second answer
+        isToolcallNecessary = self.toolcall_predictor.detect_toolcall(conv_history, ongoing_task)
+        print("The toolcall detector asked for a toolcall : "+ isToolcallNecessary)
+        if isToolcallNecessary.lower() == "true" :
+            toolcall = self.toolcall_generator.generate_toolcall(conv_history, ongoing_task)
+            new_info = self.use_toolcall(toolcall)
+            
+            
+            self.pop_history()
+            conv_history = self.build_conv_input()
+            chatbot_str = self.chatbot.handle_request(self.conv_history, ongoing_task, data=new_info)
+            self.manage_history("assistant", chatbot_str)
+            conv_history = self.build_conv_input()
+        
+        ## handle changes
         
         analysis = self.analyzer.detect_week_change(conv_history) #is a week plan modification necessary ? 
         print("analysis outcome (week change?) :", analysis)
@@ -207,22 +302,19 @@ class Orchestrator:
         if analysis.lower() == "true" :
             week_plan_input = conv_history +"<JSON>"+self.get_week_json()+"</JSON>"
             #make a llm call to modify the week plan
-            analysis = self.week_plan_analyzer.handle_request(week_plan_input) 
+            print("l.304", week_plan_input)
+            analysis = self.week_plan_analyzer.handle_request(week_plan_input)
+            print("l.306", analysis)
             response = self.interpret_analysis(analysis)
         else :
             response = {}
+        print("l.310", response)
+        self.update_memory(conv_history)
         
+        #print("Official orchestrator response :", response)
         return chatbot_str, response
     
-    def get_motivational_quote(self, u_id:int) :
-        #send general_goals et week to Motivator
-        week = self.get_week_json(user_id = u_id)
-        training_goals = self.get_training_goals_json(u_id)
-        sentence = self.motivator.handle_request(global_goals=training_goals, week=week)
-        
-        return sentence
-
-
+    
 
 # --- Initialisation de l'application FastAPI ---
 app = FastAPI(title="LLM Coach API")
@@ -272,11 +364,9 @@ def motivational_quote(user_id: int):
 #Récupérer un user
 @app.post("/users/")
 def get_or_create_user(user_id: int, db: Session = Depends(get_db)):
-    print("Getting or creating user", user_id)
     user = db.query(User).filter(User.id == user_id).first()
 
     if user:
-        print("User found", user_id)
         return user
 
     # Sinon on le crée
@@ -291,7 +381,6 @@ def get_or_create_user(user_id: int, db: Session = Depends(get_db)):
 # Récupérer une week
 @app.get("/week/{user_id}", tags=["Weeks"])
 def get_or_create_week(user_id: int, db: Session = Depends(get_db)):
-    print("Getting or creating week for user", user_id)
     get_or_create_user(user_id, db)
     
     # Chercher la week
@@ -308,7 +397,6 @@ def get_or_create_week(user_id: int, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(week)
     
-    print("Returning week for user", user_id)
     return week
 
 def call_get_week(user_id):
@@ -400,7 +488,6 @@ def get_or_create_settings(user_id: int, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(settings)
     
-    print("Returning settings for user", user_id)
     return settings
 
 
@@ -553,7 +640,6 @@ def delete_coach_preference(user_id:int, data: Pref, db:Session = Depends(get_db
 # Récupérer les credentials
 @app.get("/credentials/{user_id}", tags=["Credentials"])
 def get_or_create_credentials(user_id: int, db: Session = Depends(get_db)):
-    print("Getting or creating credentials for user", user_id)
     get_or_create_user(user_id, db)
     
     # Chercher la table
@@ -569,7 +655,6 @@ def get_or_create_credentials(user_id: int, db: Session = Depends(get_db)):
         db.commit()
         db.refresh(credentials)
     
-    print("Returning credentials for user", user_id)
     return credentials
 
 def call_credentials(user_id):
@@ -670,6 +755,29 @@ def set_height(user_id: int, new_height: str, db: Session = Depends(get_db)):
     db.refresh(credentials)
     
     return {"height": credentials.height}
+
+@app.get("/credentials/{user_id}/memory", tags=["Credentials - memory"])
+def get_memory(user_id: int, db: Session = Depends(get_db)):
+    credentials = get_or_create_credentials(user_id, db)
+    return credentials.memory
+
+def call_get_memory(user_id):
+    return requests.get(f"{BASE_URL}/credentials/{user_id}/memory")
+
+    
+@app.post("/credentials/{user_id}/memory", tags=["Credentials - memory"])
+def set_memory(user_id: int, new_memory: List[str], db: Session = Depends(get_db)):
+    credentials = get_or_create_credentials(user_id, db)
+    
+    # Update the height
+    credentials.memory = new_memory
+    db.commit()
+    db.refresh(credentials)
+    
+    return {"memory": credentials.memory}
+
+def call_set_memory(user_id, payload):
+    return requests.post(f"{BASE_URL}/credentials/{user_id}/memory", json=payload)
 
 
 
