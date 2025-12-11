@@ -38,6 +38,9 @@ class Orchestrator:
         self.motivator = Motivator()
         self.credentials = {}
         self.conv_history = []
+        self.len_conv_history = 10
+        self.batch_update = 3
+        self.batch_nb = 0
         
         self.possible_tasks = {"Onboarding" : "Your current task is to welcome the client to the program and align expectations between them and you as the health coach.\nFirst, inform the client that they will design their own physical activity plan, which should reflect their preferences, interests, and access to resources. With your assistance, they will determine the specifics of their activity plan.\nSecond, confirm their understanding and ask if they have any questions or concerns before getting started.",
             "Past experience" : "Your current task is to acquire specific information about the client’s past experiences with physical activity.\nFirst, you should ask the client what types of activities did they do and for how long?\nSecond, you should ask them worked well about their previous exerices?\nThird, were there any difficulties they encountered?\nWhy is this task important? Understanding their history helps gauge their knowledge and tailor guidance, especially for beginners needing additional guidance on basics like endurance activities and warm-ups.\n Handling certain situations\nSome people may have had negative past experiences or faced several barriers with physical activity. This information can be used to their benefit now - their successful experiences can be used to address and overcome current barriers, such as discussing previous strategies for exercising during busy times",
@@ -175,7 +178,7 @@ class Orchestrator:
         age = today.year - birthdate.year - ((today.month, today.day) < (birthdate.month, birthdate.day))
         answer["age"] = age
         
-        bmi = float(answer["weight"])/(float(answer["height"])**2)
+        bmi = float(answer["weight"])/((float(answer["height"])/100)**2)
         answer["bmi"] = bmi
         
         print("credentials =", answer)
@@ -194,7 +197,7 @@ class Orchestrator:
     
     def manage_history(self, role, content) :
         self.conv_history.append({"role": role, "content": content})
-        if len(self.conv_history) > 5 :
+        if len(self.conv_history) > self.len_conv_history :
             self.conv_history.pop(0)
     
     def pop_history(self) :
@@ -210,18 +213,25 @@ class Orchestrator:
         else :
             return self.possible_tasks['Goal setting']
     
-    def update_memory(self, history) :
+    def update_memory(self) :
         print("-- Start of function 'update_memory")
         if not self.memory.memorySet :
             print("Memory not set yet")
             self.memory.set_memory(self.get_memory())
-        
-        memory_output = self.memory.update_memory(history)
+        print('l.219')
+        memory_output = self.memory.update_memory(self.conv_history)
+        print('l.221')
         if memory_output=="false" :
             return
+        print('l.224')
         self.memory.set_memory(memory_output)
+        print('l.226')
+        print(memory_output)
         new_memory = json.loads(memory_output)
-        call_set_memory(1, new_memory)
+        print('l.228')
+        list_memory = [json.dumps(item) for item in new_memory]
+        print('l.230')
+        call_set_memory(1, list_memory)
    
     def use_toolcall(self, toolcall) :
         # Remove square brackets and split by commas
@@ -238,22 +248,21 @@ class Orchestrator:
                 toolcall_dict[func_name] = param if param else ""
         toolcall_dict["memory"] = "" #force the call to memory because it is so great
         
-        answer = "Here are some additional information. "
+        answer = "An external agent consider you should make use of those additional informations : "
         for func in toolcall_dict.keys() :
             func = func.lower()
             if func == "week" :
                 answer += "This week training plan is : "+self.get_week_json()+"."
             elif func == "credentials" :
-                print("Self.credentials : ", self.credentials)
                 if len(self.credentials) == 0 :
                     self.get_credentials()
                 
                 #BMI, age, gender, career
                 param = toolcall_dict[func].lower()
                 if param=="bmi" :
-                    answer += "The client's BMI is "+self.credentials["bmi"]+"."
+                    answer += "The client's BMI is "+str(self.credentials["bmi"])+"."
                 if param=="age" :
-                    answer += "The client is "+self.credentials["age"]+" years old."
+                    answer += "The client is "+str(self.credentials["age"])+" years old."
                 if param=="gender":
                     answer += "The client is a "+self.credentials["gender"]+"."
                 if param=="career":
@@ -293,23 +302,25 @@ class Orchestrator:
             chatbot_str = self.chatbot.handle_request(self.conv_history, ongoing_task, data=new_info)
             self.manage_history("assistant", chatbot_str)
             conv_history = self.build_conv_input()
+        self.batch_nb += 1
         
-        ## handle changes
-        
+        ## update data
         analysis = self.analyzer.detect_week_change(conv_history) #is a week plan modification necessary ? 
         print("analysis outcome (week change?) :", analysis)
         #analysis = true or false
         if analysis.lower() == "true" :
             week_plan_input = conv_history +"<JSON>"+self.get_week_json()+"</JSON>"
             #make a llm call to modify the week plan
-            print("l.304", week_plan_input)
+            print("l.304")
             analysis = self.week_plan_analyzer.handle_request(week_plan_input)
-            print("l.306", analysis)
+            print("l.306")
             response = self.interpret_analysis(analysis)
         else :
             response = {}
         print("l.310", response)
-        self.update_memory(conv_history)
+        if self.batch_nb >= self.batch_update : #time to update memory
+            self.update_memory()
+            self.batch_nb = 0 
         
         #print("Official orchestrator response :", response)
         return chatbot_str, response
@@ -764,7 +775,12 @@ def get_memory(user_id: int, db: Session = Depends(get_db)):
 def call_get_memory(user_id):
     return requests.get(f"{BASE_URL}/credentials/{user_id}/memory")
 
-    
+class MemoryModel(BaseModel):
+    category : str
+    memory : str
+    context : str
+    last_updated : str
+
 @app.post("/credentials/{user_id}/memory", tags=["Credentials - memory"])
 def set_memory(user_id: int, new_memory: List[str], db: Session = Depends(get_db)):
     credentials = get_or_create_credentials(user_id, db)
