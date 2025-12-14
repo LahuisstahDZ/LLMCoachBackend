@@ -329,8 +329,8 @@ class Orchestrator:
 
 # --- Initialisation de l'application FastAPI ---
 app = FastAPI(title="LLM Coach API")
-#BASE_URL = os.getenv("API_BASE_URL", "https://llmcoachbackend.onrender.com")
-BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
+BASE_URL = os.getenv("API_BASE_URL", "https://llmcoachbackend.onrender.com")
+#BASE_URL = os.getenv("API_BASE_URL", "http://127.0.0.1:8000")
 # Crée les tables si elles n'existent pas
 Base.metadata.create_all(bind=engine)
 

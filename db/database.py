@@ -1,4 +1,5 @@
 from sqlalchemy import create_engine
+from sqlalchemy.pool import NullPool
 from sqlalchemy.orm import sessionmaker, declarative_base
 import os
 from dotenv import load_dotenv
@@ -16,7 +17,13 @@ db_name = os.getenv('DB_NAME', 'llmcoach_db')
 DATABASE_URL = os.getenv('DATABASE_URL')
 
 # create engine (future flag for modern SQLAlchemy behavior)
-engine = create_engine(DATABASE_URL, future=True)
+engine = create_engine(
+    DATABASE_URL, 
+    future=True,
+    poolclass=NullPool,
+    pool_pre_ping=True,
+    connect_args={"sslmode": "require"},
+    )
 
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
