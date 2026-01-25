@@ -61,24 +61,7 @@ class Orchestrator:
         dico = json.loads(analysis)
 
         results = []
-
-        # handle additions
-        print("--- Starting additions")
-        if "addition" in dico:
-            for day in dico["addition"]:
-                for task in dico["addition"][day]:
-                    print(f"Adding task '{task}' to day '{day}'")
-                    dict_task = json.loads(task)
-                    dict_task["done"]='False';
-                    payload = {"day": day, "task": dict_task}
-                    resp = call_add_task(user_id, payload)
-                    try:
-                        resp.raise_for_status()
-                        results.append(resp.json())
-                    except Exception:
-                        # fall back to text if JSON not available
-                        results.append({"status_code": resp.status_code, "text": resp.text})
-
+        
         # handle deletions
         print("--- Starting deletions")
         if "deletion" in dico:
@@ -95,6 +78,29 @@ class Orchestrator:
                         results.append(resp.json())
                     except Exception:
                         results.append({"status_code": resp.status_code, "text": resp.text})
+
+        # handle additions
+        print("--- Starting additions")
+        if "addition" in dico:
+            for day in dico["addition"]:
+                for task in dico["addition"][day]:
+                    print(f"Adding task '{task}' to day '{day}'")
+                    print(type(task))
+                    
+                    #dict_task = json.loads(task)
+                    task["done"]='False';
+                    #full_task = json.dumps(dict_task)
+                    print("full task :", task)
+                    payload = {"day": day, "task": task}
+                    resp = call_add_task(user_id, payload)
+                    try:
+                        resp.raise_for_status()
+                        results.append(resp.json())
+                    except Exception:
+                        # fall back to text if JSON not available
+                        results.append({"status_code": resp.status_code, "text": resp.text})
+
+        
 
         # return a serializable structure: empty dict if nothing happened, single dict if one result, else list
         print("--- Ending interpret_analysis")
