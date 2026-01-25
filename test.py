@@ -436,6 +436,26 @@ def add_task(user_id: int, data: Task, db: Session = Depends(get_db)):
 def call_add_task(user_id, payload):
     return requests.post(f"{BASE_URL}/week/{user_id}/add_task", json=payload)
 
+
+class BoolTask(BaseModel):
+    day: str
+    title: str
+    done: bool
+@app.post("/week/{user_id}/task_done", tags=["Weeks"])
+def task_done(user_id: int, data: BoolTask, db: Session = Depends(get_db)):
+    week = get_or_create_week(user_id, db)
+    
+    # Retrouver la task
+    for i in range(len(week.description[data.day])) :
+        item = week.description[data.day][i]
+        if item['title'] == data.title :
+            week.description[data.day][i]['done'] = str(data.done).title()
+            flag_modified(week, "description")
+            db.commit()
+            db.refresh(week)
+            break
+    return week
+
 class DeleteTask(BaseModel):
     day: str
     task: str
