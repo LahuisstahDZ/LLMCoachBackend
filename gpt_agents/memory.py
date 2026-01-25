@@ -54,7 +54,7 @@ class Memory:
             - Personal motivations (e.g., 'wants to play with kids', 'training for event')\
             - Milestones and target dates\
             - Progress on existing goals\
-            \### Barriers & Challenges\
+            ### Barriers & Challenges\
             - Recurring obstacles (e.g., 'too tired after work', 'lack of motivation in winter')\
             - Environmental constraints (e.g., 'no gym nearby', 'unsafe to run outside')\
             - Mental/emotional barriers (e.g., 'anxiety about gym', 'past negative experiences')\

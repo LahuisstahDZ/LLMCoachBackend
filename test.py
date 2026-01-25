@@ -42,8 +42,7 @@ class Orchestrator:
         self.batch_update = 3
         self.batch_nb = 0
         
-        self.possible_tasks = {"Onboarding" : "Your current task is to welcome the client to the program and align expectations between them and you as the health coach.\nFirst, inform the client that they will design their own physical activity plan, which should reflect their preferences, interests, and access to resources. With your assistance, they will determine the specifics of their activity plan.\nSecond, confirm their understanding and ask if they have any questions or concerns before getting started.",
-            "Past experience" : "Your current task is to acquire specific information about the client’s past experiences with physical activity.\nFirst, you should ask the client what types of activities did they do and for how long?\nSecond, you should ask them worked well about their previous exerices?\nThird, were there any difficulties they encountered?\nWhy is this task important? Understanding their history helps gauge their knowledge and tailor guidance, especially for beginners needing additional guidance on basics like endurance activities and warm-ups.\n Handling certain situations\nSome people may have had negative past experiences or faced several barriers with physical activity. This information can be used to their benefit now - their successful experiences can be used to address and overcome current barriers, such as discussing previous strategies for exercising during busy times",
+        self.possible_tasks = {"Past experience" : "Your current task is to acquire specific information about the client’s past experiences with physical activity.\nFirst, you should ask the client what types of activities did they do and for how long?\nSecond, you should ask them worked well about their previous exerices?\nThird, were there any difficulties they encountered?\nWhy is this task important? Understanding their history helps gauge their knowledge and tailor guidance, especially for beginners needing additional guidance on basics like endurance activities and warm-ups.\n Handling certain situations\nSome people may have had negative past experiences or faced several barriers with physical activity. This information can be used to their benefit now - their successful experiences can be used to address and overcome current barriers, such as discussing previous strategies for exercising during busy times",
             "Barriers" : "Your current task is to gather information regarding the barriers to physical activity that your client has faced in the past.\nFirst, ask the client about their health or injury concerns. Follow up with specific questions if you require more information.\nSecond, ask the client what their biggest obstacle is to doing physical activity. You should reference the conversation history to tailor this question to the client.\nWhy is this task important? Understanding their experiences and positive resources they have, such as knowledge, experience, equipment, or supportive friends, will aid their starting plan",
             "Motivation" : "Your current task is to determine what is motivating them to begin an exercise program now. First, ask the client what personal benefits do they hope to receive from regular exercise?\nSecond, ask them what their main source of motivation is. Ask follow up questions if their response is vague.\nThird, ask them when they think in the long term, what kind of physical activity would they like to be able to do.\nWhy is this task important? This information will be referred to again and again during the course of the program, especially at times when the client may be struggling or losing sight of why they wanted to be more active.",
             "Goal setting" : "Your current task is to help your client set a physical activity goal.First, help them set a short term goal, if they have not already identified one themselves.A good goal should adhere to the FITT (Frequency, Intensity, Time, Type) model to help them plan the specifics of an physicalactivity regimen. The goal the client identifies should adhere to the FITT model.\n- Frequency: How many days of physical activity in the week?\n- Intensity: Will it be light, moderate, or vigorous intensity?\n- Time: How long will the physical activity session be? How many total minutes? What days of the week? What time of the day?\n- Type: What kind of activities will the client do?\nYou should assist the client in setting a FITT goal, asking one question at a time.Let the client know that these goals can be changed as often as necessary. Encourage setting realistic goals and ask questions toprobe if these goals are realistic, measurable, and specific, but don’t tell the client what to do. Always provide justification for yoursuggestions.You have access to their health data using the ‘describe‘ and ‘visualize‘ functions. You should make use of this information tohelp them set realistic goals.\nWhy is this task important?This will add to/build from the discussion of the resources or challenges they may have in store. Connecting their short term goal to largermotivations can help them stay motivated.",
@@ -69,9 +68,9 @@ class Orchestrator:
             for day in dico["addition"]:
                 for task in dico["addition"][day]:
                     print(f"Adding task '{task}' to day '{day}'")
-                    #dict_task = json.loads(task)
-                    #print("-- title : ", dict_task['title'])
-                    payload = {"day": day, "task": task}
+                    dict_task = json.loads(task)
+                    dict_task["done"]='False';
+                    payload = {"day": day, "task": dict_task}
                     resp = call_add_task(user_id, payload)
                     try:
                         resp.raise_for_status()
@@ -192,7 +191,7 @@ class Orchestrator:
                 role = "client"
             else :
                 role = "coach"
-            output += f"<{role}>{item['content']}<\{role}>"
+            output += f"<{role}>{item['content']}<\\{role}>"
         return output
     
     def manage_history(self, role, content) :
@@ -208,7 +207,7 @@ class Orchestrator:
         task = self.dialogue_state.handle_request(history)
         task = task.capitalize()
         print("\nCurrent task : ", task)
-        if task in ['Onboarding', 'Past experience', 'Barriers', 'Motivation', 'Goal setting', 'Advice']:
+        if task in ['Past experience', 'Barriers', 'Motivation', 'Goal setting', 'Advice']:
             return self.possible_tasks[task]
         else :
             return self.possible_tasks['Goal setting']
